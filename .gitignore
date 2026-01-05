@@ -1,0 +1,8 @@
+# Virtual environments
+venv/
+
+# Charts Folder
+charts/
+
+# Log files
+*.log
