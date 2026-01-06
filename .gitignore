@@ -6,3 +6,7 @@ charts/
 
 # Log files
 *.log
+
+# Test files
+*.xlsx
+*.csv

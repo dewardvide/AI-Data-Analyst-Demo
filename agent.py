@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from contextlib import AsyncExitStack
 from e2b_code_interpreter import AsyncSandbox
 from agents import FunctionTool
+from openai.types.shared import Reasoning
 
 class MyAgent: 
 
@@ -18,7 +19,7 @@ class MyAgent:
         self.session = None
         self.client = AsyncOpenAI()
         self.sbx = None
-        self.error_logger = logging.getLogger("agentv2")
+        self.error_logger = logging.getLogger("agent")
         if not self.error_logger.handlers:
             self.error_logger.setLevel(logging.INFO)
             handler = logging.FileHandler("error.log")
@@ -42,6 +43,9 @@ class MyAgent:
         while True:
             self.path = input("Enter the path to the file you want to analyze: ")
             path = self.path.strip()
+            if path == "quit":
+                print("Goodbye!")
+                return
             if not path:
                 print("Please provide a non-empty file path.")
                 continue
@@ -170,9 +174,9 @@ class MyAgent:
                 - Show relevant statistics, patterns, and visualizations when appropriate
                 - Only create visualizations when specifically asked
             """,
-            model="gpt-4.1-mini",
+            model="gpt-5-mini",
             tools=[tool],
-            model_settings=ModelSettings(tool_choice="auto"),
+            model_settings=ModelSettings(tool_choice="auto", reasoning=Reasoning(effort="minimal"), verbosity="low"),
         )
         #server stop & cleanup 
 
