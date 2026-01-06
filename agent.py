@@ -38,9 +38,24 @@ class MyAgent:
     async def run_agent(self, conversation_id):
         
         #Let the user define the path 
-        self.path = input("Enter the path to the file you want to analyze: ")
-        path = self.path.strip()
-        print(f"\nUsing file path: {path} \n")
+        valid_extensions = {".csv", ".xlsx"}
+        while True:
+            self.path = input("Enter the path to the file you want to analyze: ")
+            path = self.path.strip()
+            if not path:
+                print("Please provide a non-empty file path.")
+                continue
+            if not Path(path).is_file():
+                print(f"File not found: {path}")
+                continue
+            if Path(path).suffix.lower() not in valid_extensions:
+                print(
+                    f"Unsupported file type: {Path(path).suffix}. "
+                    "Please provide a .csv or .xlsx file."
+                )
+                continue
+            print(f"\nUsing file path: {path} \n")
+            break
         
         self.sbx = await AsyncSandbox.create(timeout=0)
         
@@ -194,7 +209,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 
 
 
