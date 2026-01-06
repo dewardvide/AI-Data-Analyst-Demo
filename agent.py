@@ -42,6 +42,9 @@ class MyAgent:
         while True:
             self.path = input("Enter the path to the file you want to analyze: ")
             path = self.path.strip()
+            if path == "quit":
+                print("Goodbye!")
+                break
             if not path:
                 print("Please provide a non-empty file path.")
                 continue
