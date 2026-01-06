@@ -44,7 +44,7 @@ class MyAgent:
             path = self.path.strip()
             if path == "quit":
                 print("Goodbye!")
-                break
+                return
             if not path:
                 print("Please provide a non-empty file path.")
                 continue
