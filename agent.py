@@ -18,7 +18,7 @@ class MyAgent:
         self.session = None
         self.client = AsyncOpenAI()
         self.sbx = None
-        self.error_logger = logging.getLogger("agentv2")
+        self.error_logger = logging.getLogger("agent")
         if not self.error_logger.handlers:
             self.error_logger.setLevel(logging.INFO)
             handler = logging.FileHandler("error.log")
@@ -173,9 +173,9 @@ class MyAgent:
                 - Show relevant statistics, patterns, and visualizations when appropriate
                 - Only create visualizations when specifically asked
             """,
-            model="gpt-4.1-mini",
+            model="gpt-5-mini",
             tools=[tool],
-            model_settings=ModelSettings(tool_choice="auto"),
+            model_settings=ModelSettings(tool_choice="auto", reasoning=Reasoning(effort="minimal"), verbosity="low"),
         )
         #server stop & cleanup 
 
