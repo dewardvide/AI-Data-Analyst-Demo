@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from contextlib import AsyncExitStack
 from e2b_code_interpreter import AsyncSandbox
 from agents import FunctionTool
+from openai.types.shared import Reasoning
 
 class MyAgent: 
 
