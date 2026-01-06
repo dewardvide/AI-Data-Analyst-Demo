@@ -6,14 +6,12 @@ from pathlib import Path
 from agents import Agent, Runner
 from agents.model_settings import ModelSettings
 from openai import AsyncOpenAI
-from contextlib import AsyncExitStack
 from e2b_code_interpreter import AsyncSandbox
 from agents import FunctionTool
 
 class MyAgent: 
 
     def __init__(self):
-        self.exit_stack = AsyncExitStack()
         self.path = None
         self.session = None
         self.client = AsyncOpenAI()
@@ -42,10 +40,6 @@ class MyAgent:
         path = self.path.strip()
         print(f"\nUsing file path: {path} \n")
         
-        self.sbx = await AsyncSandbox.create(timeout=0)
-        
-        print("Sandbox initialised successfully \n")
-
         #Available libraries in the sandbox 
 
         libraries = '''
@@ -56,126 +50,130 @@ class MyAgent:
     "scipy", "seaborn", "soundfile", "spacy", "textblob", "tornado", "urllib3", "xarray", "xlrd", "sympy"
         '''
 
-        # upload the file to the sandbox using original filename
-        filename = os.path.basename(path)
-        with open(path, "rb") as f:
-            sbx_info = await self.sbx.files.write(filename, f)
-        sbx_path = sbx_info.path
-        print(f"File uploaded to sandbox at: {sbx_path}")
-        
-        # Define tool function and tool 
-        async def analyse_data(ctx, args: str):
-            import json
-            params = json.loads(args)
-            code = params.get("code", "")
-            analysis_output = await self.sbx.run_code(code,
-                  on_error=lambda error: self.error_logger.error("Sandbox execution error: %s", error)
-                  )
+        async with AsyncSandbox.create(timeout=0) as sbx:
+            self.sbx = sbx
+            print("Sandbox initialised successfully \n")
 
-            saved_files: list[str] = []
-            charts_dir = Path("charts")
-            charts_dir.mkdir(parents=True, exist_ok=True)
+            # upload the file to the sandbox using original filename
+            filename = os.path.basename(path)
+            with open(path, "rb") as f:
+                sbx_info = await self.sbx.files.write(filename, f)
+            sbx_path = sbx_info.path
+            print(f"File uploaded to sandbox at: {sbx_path}")
 
-            for i, result in enumerate(getattr(analysis_output, "results", []) or []):
-                try:
-                    png_b64 = result._repr_png_()
-                except Exception:
-                    png_b64 = None
+            # Define tool function and tool 
+            async def analyse_data(ctx, args: str):
+                import json
+                params = json.loads(args)
+                code = params.get("code", "")
+                analysis_output = await self.sbx.run_code(code,
+                      on_error=lambda error: self.error_logger.error("Sandbox execution error: %s", error)
+                      )
 
-                if png_b64:
-                    out_path = charts_dir / f"chart_{i + 1}.png"
-                    out_path.write_bytes(base64.b64decode(png_b64))
-                    saved_files.append(str(out_path))
-                    continue
+                saved_files: list[str] = []
+                charts_dir = Path("charts")
+                charts_dir.mkdir(parents=True, exist_ok=True)
 
-                try:
-                    svg_text = result._repr_svg_()
-                except Exception:
-                    svg_text = None
+                for i, result in enumerate(getattr(analysis_output, "results", []) or []):
+                    try:
+                        png_b64 = result._repr_png_()
+                    except Exception:
+                        png_b64 = None
 
-                if svg_text:
-                    out_path = charts_dir / f"chart_{i + 1}.svg"
-                    out_path.write_text(svg_text, encoding="utf-8")
-                    saved_files.append(str(out_path))
+                    if png_b64:
+                        out_path = charts_dir / f"chart_{i + 1}.png"
+                        out_path.write_bytes(base64.b64decode(png_b64))
+                        saved_files.append(str(out_path))
+                        continue
 
-            if saved_files:
-                return f"Saved {len(saved_files)} chart(s): " + ", ".join(saved_files)
+                    try:
+                        svg_text = result._repr_svg_()
+                    except Exception:
+                        svg_text = None
 
-            available_formats: list[str] = []
-            for result in getattr(analysis_output, "results", []) or []:
-                try:
-                    available_formats.extend(list(result.formats()))
-                except Exception:
-                    continue
-            if available_formats:
-                return (
-                    "No chart artifacts were found to save. Available result formats: "
-                    + ", ".join(sorted(set(available_formats)))
-                    + ""
-                )
+                    if svg_text:
+                        out_path = charts_dir / f"chart_{i + 1}.svg"
+                        out_path.write_text(svg_text, encoding="utf-8")
+                        saved_files.append(str(out_path))
 
-            return str(analysis_output)
+                if saved_files:
+                    return f"Saved {len(saved_files)} chart(s): " + ", ".join(saved_files)
 
-        tool = FunctionTool(
-            name = "python_code_execution",
-            description="Execute Python code in a sandbox environment to analyze data. If the code produces static charts, save them under charts/ as chart_#.png or chart_#.svg and return a message listing saved files.",
-            params_json_schema={
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "Python code to execute"
-                    }
+                available_formats: list[str] = []
+                for result in getattr(analysis_output, "results", []) or []:
+                    try:
+                        available_formats.extend(list(result.formats()))
+                    except Exception:
+                        continue
+                if available_formats:
+                    return (
+                        "No chart artifacts were found to save. Available result formats: "
+                        + ", ".join(sorted(set(available_formats)))
+                        + ""
+                    )
+
+                return str(analysis_output)
+
+            tool = FunctionTool(
+                name = "python_code_execution",
+                description="Execute Python code in a sandbox environment to analyze data. If the code produces static charts, save them under charts/ as chart_#.png or chart_#.svg and return a message listing saved files.",
+                params_json_schema={
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": "Python code to execute"
+                        }
+                    },
+                    "required": ["code"]
                 },
-                "required": ["code"]
-            },
-            on_invoke_tool=analyse_data
-        )
+                on_invoke_tool=analyse_data
+            )
 
-        agent = Agent(
-            name="Assistant",
-            instructions=f"""
-                You are an expert data scientist and analyst with access to a Python code execution environment that
-                has the following libraries pre-installed: {libraries}. Your job is to ONLY analyze the file under {sbx_path}
-                
-                DATA LOCATION:
-                The dataset is available at: {sbx_path}
+            agent = Agent(
+                name="Assistant",
+                instructions=f"""
+                    You are an expert data scientist and analyst with access to a Python code execution environment that
+                    has the following libraries pre-installed: {libraries}. Your job is to ONLY analyze the file under {sbx_path}
+                    
+                    DATA LOCATION:
+                    The dataset is available at: {sbx_path}
 
-                YOUR WORKFLOW:
-                1. Use your code execution tool to run Python code
-                2. Always start by loading the data with pandas: `pd.read_csv('{sbx_path}')` or `pd.read_excel('{sbx_path}')` depending on the file type
-                3. Explore, analyze, and extract insights from the data
-                4. Present findings clearly with supporting evidence from your analysis
+                    YOUR WORKFLOW:
+                    1. Use your code execution tool to run Python code
+                    2. Always start by loading the data with pandas: `pd.read_csv('{sbx_path}')` or `pd.read_excel('{sbx_path}')` depending on the file type
+                    3. Explore, analyze, and extract insights from the data
+                    4. Present findings clearly with supporting evidence from your analysis
 
-                GUIDELINES:
-                - Import the required libraries at the start of each code block
-                - Use the pre-installed libraries: {libraries} to analyse the data or create visualizations where requested
-                - Handle errors gracefully and adjust your approach if needed  
-                - Provide actionable, data-driven insights
-                - Show relevant statistics, patterns, and visualizations when appropriate
-                - Only create visualizations when specifically asked
-            """,
-            model="gpt-4.1-mini",
-            tools=[tool],
-            model_settings=ModelSettings(tool_choice="auto"),
-        )
-        #server stop & cleanup 
+                    GUIDELINES:
+                    - Import the required libraries at the start of each code block
+                    - Use the pre-installed libraries: {libraries} to analyse the data or create visualizations where requested
+                    - Handle errors gracefully and adjust your approach if needed  
+                    - Provide actionable, data-driven insights
+                    - Show relevant statistics, patterns, and visualizations when appropriate
+                    - Only create visualizations when specifically asked
+                """,
+                model="gpt-4.1-mini",
+                tools=[tool],
+                model_settings=ModelSettings(tool_choice="auto"),
+            )
+            #server stop & cleanup 
 
-        # initial run to initialise the loop 
-        initial_prompt = f"Understand the data in {sbx_path} and give me a 200 word summary of its structure and 3 key insight worth exploring with you."
-        result = await Runner.run(agent, initial_prompt, conversation_id=conversation_id)
-        print(f"Agent: {result.final_output}")
+            # initial run to initialise the loop 
+            initial_prompt = f"Understand the data in {sbx_path} and give me a 200 word summary of its structure and 3 key insight worth exploring with you."
+            result = await Runner.run(agent, initial_prompt, conversation_id=conversation_id)
+            print(f"Agent: {result.final_output}")
 
-        while True:
-            user_input = input("\nEnter your message (or 'quit' to exit): ")
-            if user_input.lower() == 'quit':
-                break
-            result = await Runner.run(agent, user_input, conversation_id=conversation_id)
-            print(f"\nAgent: {result.final_output}\n")
+            while True:
+                user_input = input("\nEnter your message (or 'quit' to exit): ")
+                if user_input.lower() == 'quit':
+                    break
+                result = await Runner.run(agent, user_input, conversation_id=conversation_id)
+                print(f"\nAgent: {result.final_output}\n")
+        self.sbx = None
     
     async def cleanup(self):
         """\nClean up resources\n"""
-        await self.exit_stack.aclose()
         if self.sbx:
             await self.sbx.kill()
 
@@ -194,8 +192,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
 
 
 
